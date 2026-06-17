@@ -8,3 +8,5 @@
 4. If you want to stop the script, you can rejoin with infinite yield
 
 Enjoy!
+
+Credits to @MuhammadwithHacksFor in YouTube for the original source code, I only remade it.
