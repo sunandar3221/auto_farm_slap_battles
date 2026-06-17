@@ -2,11 +2,63 @@
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local StarterGui = game:GetService("StarterGui")
-local PathfindingService = game:GetService("PathfindingService") -- Ditambahkan untuk pathfinding
+local PathfindingService = game:GetService("PathfindingService")
 
 local player = Players.LocalPlayer
 
--- List of gloves to completely ignore
+-- Variabel Global untuk Toggle & Visualisasi
+local showPathfinding = false
+local visualParts = {}
+
+local function clearVisuals()
+    for _, p in ipairs(visualParts) do
+        if p and p.Parent then p:Destroy() end
+    end
+    table.clear(visualParts)
+end
+
+local function drawMarker(pos, color, size)
+    if not showPathfinding then return end
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Size = size or Vector3.new(1.2, 1.2, 1.2)
+    part.Color = color
+    part.Material = Enum.Material.Neon
+    part.Position = pos
+    part.Parent = workspace
+    table.insert(visualParts, part)
+end
+
+-- Membuat GUI Toggle
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "PathfindingToggleGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0, 160, 0, 40)
+toggleButton.Position = UDim2.new(0, 10, 0.5, 0)
+toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.Text = "Show Path: OFF"
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextSize = 18
+toggleButton.Parent = screenGui
+
+toggleButton.MouseButton1Click:Connect(function()
+    showPathfinding = not showPathfinding
+    if showPathfinding then
+        toggleButton.Text = "Show Path: ON"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+    else
+        toggleButton.Text = "Show Path: OFF"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        clearVisuals()
+    end
+end)
+
+-- Daftar sarung tangan yang diabaikan
 local IGNORED_GLOVES = {
     ["Spectator"] = true,
     ["Diamond"] = true,
@@ -14,10 +66,11 @@ local IGNORED_GLOVES = {
     ["Custom"] = true,
     ["Ghost"] = true, 
     ["Adios"] = true,
-    ["Counter"] = true
+    ["Counter"] = true,
+    ["Alchemist"] = true
 }
 
--- Function to check if a target is "slappable"
+-- Fungsi mengecek apakah target bisa ditampar
 local function isTargetable(otherPlayer)
     if not otherPlayer or not otherPlayer.Character then return false end
     
@@ -25,10 +78,8 @@ local function isTargetable(otherPlayer)
     local head = char:FindFirstChild("Head")
     local hum = char:FindFirstChild("Humanoid")
     
-    -- 1. Basic checks
     if not head or not hum or hum.Health <= 0 then return false end
 
-    -- 2. Check Glove Name in Leaderstats
     local leaderstats = otherPlayer:FindFirstChild("leaderstats")
     if leaderstats then
         local gloveValue = leaderstats:FindFirstChild("Glove")
@@ -37,12 +88,10 @@ local function isTargetable(otherPlayer)
         end
     end
 
-    -- 3. Check for "Rock" form
     if char:FindFirstChild("Rock") or char:FindFirstChild("Crystal") then
         return false
     end
 
-    -- 4. Check for Ghost / Invisibility
     if head.Transparency > 0.5 then
         return false
     end
@@ -50,16 +99,34 @@ local function isTargetable(otherPlayer)
     return true
 end
 
+-- Validasi Posisi Lantai (Abaikan Karakter)
+local function getFloorPosition(pos)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    
+    local ignoreList = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character then table.insert(ignoreList, p.Character) end
+    end
+    raycastParams.FilterDescendantsInstances = ignoreList
+    
+    local rayResult = workspace:Raycast(pos + Vector3.new(0, 5, 0), Vector3.new(0, -50, 0), raycastParams)
+    if rayResult then
+        return rayResult.Position + Vector3.new(0, 1.5, 0)
+    end
+    return pos
+end
+
 local function runBot(character)
     local humanoid = character:WaitForChild("Humanoid")
     local hrp = character:WaitForChild("HumanoidRootPart")
 
-    -- 1. Move to the Red Portal (Normal Arena)
+    -- 1. Berjalan ke Portal Merah
     local lobby = workspace:WaitForChild("Lobby")
     local portal = lobby:WaitForChild("Teleport1")
 
     task.wait(1)
-    print("Walking to portal...")
+    print("Berjalan ke portal...")
     humanoid:MoveTo(portal.Position)
 
     repeat
@@ -69,33 +136,52 @@ local function runBot(character)
         end
     until (hrp.Position - portal.Position).Magnitude < 4 or not character.Parent
 
-    -- 2. Wait for Arena Transition
+    -- 2. Tunggu Transisi Arena
     local startY = hrp.Position.Y
     repeat task.wait(0.5) until math.abs(hrp.Position.Y - startY) > 50 or not character.Parent
 
     StarterGui:SetCore("SendNotification", {
-        Title = "Arena Active",
-        Text = "Pathfinding & Height Check Active",
+        Title = "Bot Anti-Stutter",
+        Text = "Gerakan diperhalus secara maksimal",
         Duration = 3
     })
 
-    -- Variable global untuk target saat ini
+    -- 3. Membuat Hitbox Transparan di sekitar bot
+    local hitbox = Instance.new("Part")
+    hitbox.Name = "BotAttackHitbox"
+    hitbox.Size = Vector3.new(12, 8, 12)
+    hitbox.Transparency = 0.7
+    hitbox.Color = Color3.fromRGB(255, 0, 100)
+    hitbox.CanCollide = false
+    hitbox.Massless = true
+    hitbox.Anchored = false
+    
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = hrp
+    weld.Part1 = hitbox
+    weld.Parent = hitbox
+    hitbox.CFrame = hrp.CFrame
+    hitbox.Parent = character
+
     local currentTarget: BasePart? = nil
 
-    -- 3. Target Scanner & Height Check (Berjalan tanpa delay)
+    -- 4. Scanner Target & Cek Tinggi (Max 6 Stud)
     task.spawn(function()
         while character.Parent and humanoid.Health > 0 do
             local closest, shortest = nil, math.huge
             
             for _, other in ipairs(Players:GetPlayers()) do
                 if other ~= player and isTargetable(other) then
-                    local ohrp = other.Character:FindFirstChild("HumanoidRootPart")
-                    if ohrp then
+                    local ochar = other.Character
+                    local ohrp = ochar:FindFirstChild("HumanoidRootPart")
+                    local ohum = ochar:FindFirstChild("Humanoid")
+                    if ohrp and ohum then
                         local dist = (hrp.Position - ohrp.Position).Magnitude
                         local heightDiff = math.abs(hrp.Position.Y - ohrp.Position.Y)
                         
-                        -- Hanya target player yang ada di arena DAN beda ketinggian TIDAK lebih dari 3 stud
-                        if dist < shortest and ohrp.Position.Y < 1000 and heightDiff <= 3 then 
+                        local isInAir = ohum:GetState() == Enum.HumanoidStateType.Freefall or ohum:GetState() == Enum.HumanoidStateType.Jumping
+                        
+                        if dist < shortest and ohrp.Position.Y < 1000 and (isInAir or heightDiff <= 6) then 
                             shortest = dist
                             closest = ohrp
                         end
@@ -103,106 +189,124 @@ local function runBot(character)
                 end
             end
 
-            -- Update target secara real-time
             currentTarget = closest
-
-            -- Logika jump & slap jarak dekat
-            if currentTarget then
-                if (hrp.Position - currentTarget.Position).Magnitude <= 12 then
-                    humanoid.Jump = true 
-                end
-            end
             task.wait(0.1)
         end
     end)
 
-    -- 4. Pathfinding Follower (Berjalan di thread terpisah agar tidak lag/delay)
+    -- 5. Movement Loop yang 100% Smooth
     task.spawn(function()
         local path = PathfindingService:CreatePath({
-            AgentRadius = 2,
+            AgentRadius = 1.2, 
             AgentHeight = 5,
             AgentCanJump = true,
-            WaypointSpacing = 4
+            AgentCanClimb = false,
+            WaypointSpacing = 4 -- Diperbesar sedikit agar titiknya tidak terlalu rapat, membantu kelancaran
         })
         
-        local lastTargetPos = Vector3.new(0, 0, 0)
-
         while character.Parent and humanoid.Health > 0 do
             if currentTarget then
                 local targetPos = currentTarget.Position
                 local distToTarget = (hrp.Position - targetPos).Magnitude
-                local posDiff = (targetPos - lastTargetPos).Magnitude
-
-                -- Buat path baru hanya jika target bergerak signifikan atau bot masih jauh
-                if posDiff > 3 or distToTarget > 6 then
-                    lastTargetPos = targetPos
+                
+                if distToTarget > 12 then
+                    local pathTargetPos = getFloorPosition(targetPos)
                     
-                    local success = pcall(function()
-                        path:ComputePath(hrp.Position, targetPos)
+                    -- Pancing gerak agar tidak diam saat loading ComputeAsync
+                    humanoid:MoveTo(pathTargetPos) 
+                    
+                    local success, _ = pcall(function()
+                        path:ComputeAsync(hrp.Position, pathTargetPos)
                     end)
                     
                     if success and path.Status == Enum.PathStatus.Success then
                         local waypoints = path:GetWaypoints()
+                        clearVisuals()
                         
+                        if showPathfinding then
+                            drawMarker(pathTargetPos, Color3.fromRGB(255, 0, 0), Vector3.new(1.8, 1.8, 1.8))
+                            for _, wp in ipairs(waypoints) do
+                                drawMarker(wp.Position, Color3.fromRGB(0, 255, 0))
+                            end
+                        end
+                        
+                        -- Loop pergerakan anti ngadat
                         for i = 2, #waypoints do
-                            -- Hentikan path jika target hilang, karakter mati, atau target berpindah terlalu jauh
                             if not currentTarget or not character.Parent or humanoid.Health <= 0 then break end
+                            
+                            -- Jika target pindah posisi lebih dari 8 stud, hentikan untuk kalkulasi ulang
                             if (currentTarget.Position - targetPos).Magnitude > 8 then break end
                             
                             local wp = waypoints[i]
                             humanoid:MoveTo(wp.Position)
                             
-                            -- Lompat jika waypoint memerintahkan untuk lompat
                             if wp.Action == Enum.PathWaypointAction.Jump then
                                 humanoid.Jump = true
                             end
                             
-                            -- Timeout cepat (0.2 detik) per waypoint agar pergerakan terasa instan tanpa delay
-                            humanoid.MoveToFinished:Wait(0.2)
+                            local startTime = tick()
+                            -- ANTI-STUTTER: Gunakan jarak 2D (Horizontal) dan lewati waypoint sebelum benar-benar sampai (threshold 3.5)
+                            repeat
+                                task.wait()
+                                local pos1 = Vector2.new(hrp.Position.X, hrp.Position.Z)
+                                local pos2 = Vector2.new(wp.Position.X, wp.Position.Z)
+                                local dist2D = (pos1 - pos2).Magnitude
+                            until dist2D <= 3.5 or tick() - startTime > 0.5 or not currentTarget or (currentTarget.Position - targetPos).Magnitude > 8
                         end
                     else
-                        -- Fallback: Jika path gagal (misal di udara), maju langsung ke target
                         humanoid:MoveTo(targetPos)
                         task.wait(0.1)
                     end
                 else
-                    -- Jika target dekat dan tidak banyak bergerak, kejar langsung tanpa compute path berat
+                    clearVisuals()
                     humanoid:MoveTo(targetPos)
-                    task.wait(0.1)
+                    task.wait(0.05)
                 end
             else
-                -- Reset posisi jika tidak ada target
-                lastTargetPos = Vector3.new(0, 0, 0)
+                clearVisuals()
                 task.wait(0.1)
             end
+            task.wait()
         end
+        
+        clearVisuals()
     end)
 
-    -- 5. Slap/Tool Loop
+    -- 6. Logika Menyerang berbasis Hitbox
     task.spawn(function()
+        local overlapParams = OverlapParams.new()
+        overlapParams.FilterType = Enum.RaycastFilterType.Include
+        
         while character.Parent and humanoid.Health > 0 do
-            local tool = character:FindFirstChildOfClass("Tool")
-            if tool then
-                pcall(function()
-                    tool:Activate()
-                    local remote = tool:FindFirstChildWhichIsA("RemoteEvent", true)
-                    if remote then remote:FireServer() end
-                end)
+            if currentTarget then
+                overlapParams.FilterDescendantsInstances = {currentTarget.Parent}
+                
+                local partsInHitbox = workspace:GetPartsInPart(hitbox, overlapParams)
+                
+                if #partsInHitbox > 0 then
+                    local tool = character:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChildOfClass("Tool")
+                    if tool then
+                        if tool.Parent ~= character then
+                            humanoid:EquipTool(tool)
+                        end
+                        
+                        pcall(function()
+                            tool:Activate()
+                            local remote = tool:FindFirstChildWhichIsA("RemoteEvent", true)
+                            if remote then remote:FireServer() end
+                        end)
+                    end
+                end
             end
-            task.wait(0.1)
+            task.wait(0.05)
         end
     end)
 
-    -- 6. Auto-Equip & E-Ability Spams
+    -- 7. Spam E-Ability
     task.spawn(function()
         while character.Parent and humanoid.Health > 0 do
-            local tool = player.Backpack:FindFirstChildOfClass("Tool")
-            if tool then humanoid:EquipTool(tool) end
-            
-            -- Use E ability
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, nil)
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, nil)
-            
             task.wait(2)
         end
     end)
