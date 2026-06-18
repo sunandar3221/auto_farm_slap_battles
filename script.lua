@@ -67,7 +67,11 @@ local IGNORED_GLOVES = {
     ["Ghost"] = true, 
     ["Adios"] = true,
     ["Counter"] = true,
-    ["Alchemist"] = true
+    ["Alchemist"] = true,
+    ["Error"] = true,
+    ["God's Hand"] = true,
+    ["The Flex"] = true,
+    ["OVERKILL"] = true
 }
 
 -- Fungsi mengecek apakah target bisa ditampar
